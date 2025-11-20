@@ -80,7 +80,6 @@
   let points = [];
   let circle = null;
 
-  // initialize canvas size to fill main area
   function fitCanvasToScreen(){
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
@@ -96,7 +95,6 @@
     const tmp = new Image();
     tmp.onload = () => {
       img = tmp; imgLoaded = true;
-      // fit image to canvas (CSS pixels)
       const rect = canvas.getBoundingClientRect();
       scale = Math.min(rect.width / img.width, rect.height / img.height);
       if (!isFinite(scale) || scale <= 0) scale = 1;
@@ -110,16 +108,10 @@
     tmp.src = url;
   }
 
-  // accept file input and drag
-  fileInput.addEventListener('change', e => { const f = e.target.files?.[0]; if(f) loadImageFromBlob(f); });
+  fileInput.addEventListener('change', e => { const f = e.target.files && e.target.files[0]; if(f) loadImageFromBlob(f); });
   window.addEventListener('dragover', e => e.preventDefault());
-  window.addEventListener('drop', e => {
-    e.preventDefault();
-    const f = e.dataTransfer.files?.[0];
-    if(f && f.type.startsWith('image/')) loadImageFromBlob(f);
-  });
+  window.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer.files && e.dataTransfer.files[0]; if(f && f.type.startsWith('image/')) loadImageFromBlob(f); });
 
-  // Ctrl+V / paste handling: automatic
   window.addEventListener('paste', e => {
     const items = e.clipboardData && e.clipboardData.items;
     if (!items) return;
@@ -130,14 +122,8 @@
         if (file) { loadImageFromBlob(file); return; }
       }
     }
-    // fallback: sometimes image appears as URI in text/plain
     const text = e.clipboardData.getData('text/plain');
-    try {
-      if (text && text.startsWith('data:image')){
-        // data uri
-        fetch(text).then(res=>res.blob()).then(loadImageFromBlob).catch(()=>{});
-      }
-    } catch (err){}
+    try { if (text && text.startsWith('data:image')){ fetch(text).then(res=>res.blob()).then(loadImageFromBlob).catch(()=>{}); } } catch (err){}
   });
 
   function clientToCanvas(clientX, clientY){
@@ -167,28 +153,42 @@
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(img,0,0);
 
-    // circle outline
     if(circle){
       ctx.save();
       ctx.strokeStyle = 'rgba(96,165,250,0.95)';
       ctx.lineWidth = Math.max(2/scale, 0.5);
       ctx.beginPath(); ctx.arc(circle.cx, circle.cy, circle.r, 0, Math.PI*2); ctx.stroke();
-      // center marker
       ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(circle.cx, circle.cy, Math.max(4/scale,2/scale), 0, Math.PI*2); ctx.fill();
       ctx.restore();
     }
 
-    // radius lines
     if(circle && points.length>=1){ ctx.save(); ctx.strokeStyle='rgba(16,185,129,0.95)'; ctx.lineWidth = Math.max(2/scale,0.5); ctx.beginPath(); ctx.moveTo(circle.cx,circle.cy); ctx.lineTo(points[0].x,points[0].y); ctx.stroke(); ctx.restore(); }
     if(circle && points.length>=2){ ctx.save(); ctx.strokeStyle='rgba(59,130,246,0.95)'; ctx.lineWidth = Math.max(2/scale,0.5); ctx.beginPath(); ctx.moveTo(circle.cx,circle.cy); ctx.lineTo(points[1].x,points[1].y); ctx.stroke(); ctx.restore(); }
 
-    // draw points
+    // draw points with labels
     points.forEach((p,i)=>{
-      ctx.save(); ctx.beginPath(); ctx.fillStyle = ['#10b981','#3b82f6','#f97316'][i]||'white'; ctx.arc(p.x,p.y,Math.max(6/scale,3/scale),0,Math.PI*2); ctx.fill(); ctx.restore();
+      ctx.save();
+      const col = ['#10b981','#3b82f6','#f97316'][i] || 'white';
+      ctx.fillStyle = col;
+      const r = Math.max(7/scale, 4/scale);
+      ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2); ctx.fill();
+
+      // label background
+      ctx.fillStyle = 'white';
+      ctx.font = `${Math.max(16/scale,10/scale)}px Inter`;
+      const label = String(i+1);
+      const tw = ctx.measureText(label).width;
+      const th = Math.max(16/scale,10/scale);
+      ctx.fillRect(p.x + r + 4/scale, p.y - th + 4/scale, tw + 6/scale, th);
+
+      // label text
+      ctx.fillStyle = 'black';
+      ctx.fillText(label, p.x + r + 7/scale, p.y + 4/scale);
+
+      ctx.restore();
     });
   }
 
-  // pointer handling: zoom/pan and click
   let isPanning=false, lastPan=null;
 
   canvas.addEventListener('wheel', e => {
@@ -232,18 +232,76 @@
   resetViewBtn.addEventListener('click', ()=>{ if(!imgLoaded) return; const rect = canvas.getBoundingClientRect(); scale = Math.min(rect.width / img.width, rect.height / img.height) || 1; tx = (rect.width - img.width * scale)/2; ty = (rect.height - img.height * scale)/2; render(); });
 
   downloadBtn.addEventListener('click', ()=>{
-    if(!imgLoaded) return; const out = document.createElement('canvas'); out.width = img.width; out.height = img.height; const oc = out.getContext('2d'); oc.drawImage(img,0,0);
-    if(circle){ oc.strokeStyle='rgba(96,165,250,1)'; oc.lineWidth = Math.max(3,3); oc.beginPath(); oc.arc(circle.cx,circle.cy,circle.r,0,Math.PI*2); oc.stroke(); oc.fillStyle='white'; oc.beginPath(); oc.arc(circle.cx,circle.cy,6,0,Math.PI*2); oc.fill(); }
-    points.forEach((p,i)=>{ oc.fillStyle='white'; oc.beginPath(); oc.arc(p.x,p.y,8,0,Math.PI*2); oc.fill(); oc.fillStyle='black'; oc.fillText(`${i+1}`, p.x+10, p.y-10); });
-    const url = out.toDataURL('image/png'); const a = document.createElement('a'); a.href = url; a.download = 'annotated.png'; a.click();
+    if(!imgLoaded) return;
+    const out = document.createElement('canvas');
+    out.width = img.width; out.height = img.height;
+    const oc = out.getContext('2d');
+    // draw base image
+    oc.drawImage(img,0,0);
+
+    // draw circle, center marker and radius lines in image coordinates
+    if(circle){
+      oc.save();
+      oc.strokeStyle='rgba(96,165,250,1)';
+      oc.lineWidth = Math.max(3, 3);
+      oc.beginPath(); oc.arc(circle.cx,circle.cy,circle.r,0,Math.PI*2); oc.stroke();
+      // center marker
+      oc.fillStyle = 'white'; oc.beginPath(); oc.arc(circle.cx,circle.cy,8,0,Math.PI*2); oc.fill();
+      oc.restore();
+
+      // radius lines to point 1 and 2 if present
+      if(points.length>=1){ oc.save(); oc.strokeStyle='rgba(16,185,129,0.95)'; oc.lineWidth=3; oc.beginPath(); oc.moveTo(circle.cx,circle.cy); oc.lineTo(points[0].x,points[0].y); oc.stroke(); oc.restore(); }
+      if(points.length>=2){ oc.save(); oc.strokeStyle='rgba(59,130,246,0.95)'; oc.lineWidth=3; oc.beginPath(); oc.moveTo(circle.cx,circle.cy); oc.lineTo(points[1].x,points[1].y); oc.stroke(); oc.restore(); }
+    }
+
+    // draw labeled points (match on-screen style)
+    points.forEach((p,i)=>{
+      const cols = ['#10b981','#3b82f6','#f97316'];
+      const col = cols[i] || '#ffffff';
+      // point fill
+      oc.fillStyle = col; oc.beginPath(); oc.arc(p.x,p.y,10,0,Math.PI*2); oc.fill();
+      // label background
+      const label = String(i+1);
+      oc.font = '18px Inter, Arial';
+      const tw = oc.measureText(label).width;
+      const th = 18;
+      const lx = p.x + 12;
+      const ly = p.y - th/2;
+      oc.fillStyle = 'white'; oc.fillRect(lx, ly, tw + 8, th + 4);
+      // label text
+      oc.fillStyle = 'black'; oc.fillText(label, lx + 6, ly + th - 4);
+    });
+
+    const url = out.toDataURL('image/png');
+    const a = document.createElement('a'); a.href = url; a.download = 'annotated.png'; a.click();
   });
 
   copyAnnotatedBtn.addEventListener('click', async ()=>{
     if(!imgLoaded) return alert('No image');
     try{
-      const out = document.createElement('canvas'); out.width = img.width; out.height = img.height; const oc = out.getContext('2d'); oc.drawImage(img,0,0);
-      if(circle){ oc.strokeStyle='rgba(96,165,250,1)'; oc.lineWidth = Math.max(3,3); oc.beginPath(); oc.arc(circle.cx,circle.cy,circle.r,0,Math.PI*2); oc.stroke(); oc.fillStyle='white'; oc.beginPath(); oc.arc(circle.cx,circle.cy,6,0,Math.PI*2); oc.fill(); }
-      points.forEach((p,i)=>{ oc.fillStyle='white'; oc.beginPath(); oc.arc(p.x,p.y,8,0,Math.PI*2); oc.fill(); });
+      const out = document.createElement('canvas'); out.width = img.width; out.height = img.height; const oc = out.getContext('2d');
+      oc.drawImage(img,0,0);
+
+      if(circle){
+        oc.save();
+        oc.strokeStyle='rgba(96,165,250,1)'; oc.lineWidth = Math.max(3,3); oc.beginPath(); oc.arc(circle.cx,circle.cy,circle.r,0,Math.PI*2); oc.stroke();
+        oc.fillStyle='white'; oc.beginPath(); oc.arc(circle.cx,circle.cy,8,0,Math.PI*2); oc.fill(); oc.restore();
+        if(points.length>=1){ oc.save(); oc.strokeStyle='rgba(16,185,129,0.95)'; oc.lineWidth=3; oc.beginPath(); oc.moveTo(circle.cx,circle.cy); oc.lineTo(points[0].x,points[0].y); oc.stroke(); oc.restore(); }
+        if(points.length>=2){ oc.save(); oc.strokeStyle='rgba(59,130,246,0.95)'; oc.lineWidth=3; oc.beginPath(); oc.moveTo(circle.cx,circle.cy); oc.lineTo(points[1].x,points[1].y); oc.stroke(); oc.restore(); }
+      }
+
+      points.forEach((p,i)=>{
+        const cols = ['#10b981','#3b82f6','#f97316'];
+        const col = cols[i] || '#ffffff';
+        oc.fillStyle = col; oc.beginPath(); oc.arc(p.x,p.y,10,0,Math.PI*2); oc.fill();
+        const label = String(i+1);
+        oc.font = '18px Inter, Arial';
+        const tw = oc.measureText(label).width; const th = 18;
+        const lx = p.x + 12; const ly = p.y - th/2;
+        oc.fillStyle = 'white'; oc.fillRect(lx, ly, tw + 8, th + 4);
+        oc.fillStyle = 'black'; oc.fillText(label, lx + 6, ly + th - 4);
+      });
+
       out.toBlob(async blob => {
         try{
           await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
@@ -262,12 +320,7 @@
 
   function computeCircle(){ circle=null; if(points.length<3) return; const [p1,p2,p3]=points.slice(0,3); const x1=p1.x,y1=p1.y,x2=p2.x,y2=p2.y,x3=p3.x,y3=p3.y; const a=x2-x1, b=y2-y1, c=x3-x1, d=y3-y1; const e=(a*(x1+x2)+b*(y1+y2))/2; const f=(c*(x1+x3)+d*(y1+y3))/2; const det=a*d-b*c; if(Math.abs(det)<1e-9){ circle=null; return; } const cx=(d*e - b*f)/det; const cy=(-c*e + a*f)/det; const r=Math.hypot(cx-x1, cy-y1); circle={cx,cy,r}; updateInfo(); }
 
-  // initial setup
-  function init(){ // ensure canvas CSS fills available space
-    canvas.style.width = '100%'; canvas.style.height = '100%'; resize();
-    // helpful instructions: user can press Ctrl+V anywhere to paste
-    document.addEventListener('keydown', e=>{ if(e.code==='Space') e.preventDefault(); });
-  }
+  function init(){ canvas.style.width = '100%'; canvas.style.height = '100%'; resize(); document.addEventListener('keydown', e=>{ if(e.code==='Space') e.preventDefault(); }); }
   init();
 })();
 </script>
